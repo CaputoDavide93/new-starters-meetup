@@ -1,0 +1,23 @@
+# Lambda Layer Requirements for Python 3.13
+# Generated for AWS Lambda ARM64 (Graviton)
+
+# Slack integration
+slack-sdk>=3.39.0
+slack-bolt>=1.21.0
+
+# Google Calendar integration
+google-api-python-client>=2.187.0
+google-auth>=2.43.0
+google-auth-httplib2>=0.2.0
+google-auth-oauthlib>=1.2.0
+
+# Azure AD integration
+azure-identity>=1.21.0
+msal>=1.34.0
+
+# AWS SDK (usually pre-installed in Lambda, but good to pin)
+boto3>=1.35.0
+
+# Utilities
+pytz>=2024.1
+requests>=2.32.0
