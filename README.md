@@ -8,10 +8,13 @@ A Slack-integrated AWS Lambda application for scheduling intro meetings between 
 - **Two Meeting Types**:
   - ☕️ **Coffee Intros** - Casual meet-and-greet sessions
   - 🤝 **Buddy Intros** - Structured onboarding buddy meetings
-- **Smart Scheduling** - Automatically finds available calendar slots
-- **Azure AD Integration** - Syncs team members from Azure AD groups
-- **Weighted Selection** - Prioritizes team members with fewer intros
-- **Google Calendar Integration** - Creates calendar events with invites
+- **Smart Scheduling** - Automatically finds available calendar slots (11:00-15:00 Dublin time)
+- **Fair Rotation** - Strict minimum-weight-first selection guarantees everyone gets a turn
+- **Business Days Cadence** - 2 business days between bookings (skips weekends)
+- **Azure AD Integration** - Syncs team members from Azure AD groups (with pagination for large groups)
+- **Departed User Cleanup** - Automatically removes users who left the Azure AD group
+- **Google Calendar Integration** - Uses FreeBusy API for efficient availability checks
+- **Slack Notifications** - Real-time booking updates with progress indicators
 
 ## 📁 Project Structure
 
@@ -27,9 +30,9 @@ NewStarters_MeetUp/
 │   └── common/                   # Shared utilities (development copy)
 │       ├── __init__.py
 │       ├── config.py             # Configuration from Secrets Manager
-│       ├── azure_sync.py         # Azure AD group sync
-│       ├── calendar_utils.py     # Google Calendar operations
-│       └── dynamo_utils.py       # DynamoDB weight management
+│       ├── azure_sync.py         # Azure AD group sync (with pagination)
+│       ├── calendar_utils.py     # Google Calendar operations (FreeBusy API)
+│       └── dynamo_utils.py       # DynamoDB weight management (BatchGetItem)
 ├── layer/                        # Lambda Layer (Python 3.13 ARM64)
 │   ├── requirements.txt          # Layer dependencies
 │   └── python/                   # Installed packages
@@ -39,6 +42,13 @@ NewStarters_MeetUp/
 │       ├── google-api-python-client/
 │       ├── azure-identity/
 │       └── ...
+├── IntroUI-Lambda-.../           # UI Lambda deployment folder
+│   └── ui_entry.py
+├── IntroWorker-Lambda-.../       # Worker Lambda deployment folder
+│   └── worker_entry.py
+├── scripts/                      # Build scripts
+│   ├── build-layer.sh
+│   └── sync-common.sh
 ├── .gitignore
 └── README.md
 ```
@@ -162,8 +172,10 @@ Create two tables with the following schema:
 
 | Table Name | Partition Key | Attributes |
 |------------|---------------|------------|
-| `intro-weights` | `email` (String) | `weight` (Number), `member_list` (List) |
-| `buddy-intro-weights` | `email` (String) | `weight` (Number), `member_list` (List) |
+| `IntroUsers` | `email` (String) | `intro_count` (Number), `display_name` (String) |
+| `BuddyUsers` | `email` (String) | `intro_count` (Number), `display_name` (String) |
+
+> **Note**: The `intro_count` tracks how many meetings each person has had. The system uses strict minimum-weight-first selection to ensure fair rotation.
 
 ## 🔧 Local Development
 
@@ -206,10 +218,10 @@ print('✓ Imports work!')
 | `slack-sdk` | 3.39.0 | Slack API client |
 | `slack-bolt` | 1.27.0 | Slack app framework |
 | `google-api-python-client` | 2.187.0 | Google Calendar API |
-| `google-auth` | 2.43.0 | Google authentication |
+| `google-auth` | 2.45.0 | Google authentication |
 | `azure-identity` | 1.25.1 | Azure AD authentication |
 | `msal` | 1.34.0 | Microsoft authentication |
-| `boto3` | 1.42.9 | AWS SDK |
+| `boto3` | 1.42.19 | AWS SDK |
 | `cryptography` | 46.0.3 | Cryptographic operations |
 | `pytz` | 2025.2 | Timezone handling |
 
