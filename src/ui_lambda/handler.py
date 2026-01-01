@@ -153,3 +153,9 @@ def handle_submit(ack, body, client, logger):
 def lambda_handler(event, context):
     """Lambda entry point for Slack requests."""
     return handler.handle(event, context)
+
+
+# ──── LAMBDA HANDLER ─────────────────────────────────────────────────────
+def lambda_handler(event, context):
+    """Lambda entry point for Slack requests."""
+    return handler.handle(event, context)

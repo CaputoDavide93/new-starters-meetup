@@ -45,18 +45,41 @@ from intro_common.calendar_utils import (
 )
 
 LOG = logging.getLogger(__name__)
-LOG.setLevel(logging.INFO)
+LOG.setLevel(logging.DEBUG)
 
 logging.basicConfig(
     format='%(asctime)s [%(levelname)s] [%(name)s] %(message)s',
-    level=logging.INFO
+    level=logging.DEBUG
 )
 
 SLACK = WebClient(token=slack_cfg["bot_token"])
 CLOUDWATCH = boto3.client('cloudwatch')
 
-# Meeting cadence (days)
-CADENCE = 2
+# Meeting cadence (business days, not calendar days)
+CADENCE_BUSINESS_DAYS = 2
+
+
+def add_business_days(start: datetime.date, business_days: int) -> datetime.date:
+    """
+    Add business days to a date, skipping weekends.
+    
+    Args:
+        start: Starting date
+        business_days: Number of business days to add
+        
+    Returns:
+        Date after adding business days
+    """
+    current = start
+    days_added = 0
+    
+    while days_added < business_days:
+        current += datetime.timedelta(days=1)
+        # Monday=0, Friday=4, Saturday=5, Sunday=6
+        if current.weekday() < 5:  # Weekday
+            days_added += 1
+    
+    return current
 
 
 def _publish_metrics(namespace: str, metrics: dict) -> None:
@@ -119,7 +142,7 @@ def book_all_intros(
 
     # Select correct Azure config and DynamoDB table
     if mode == "coffee":
-        sync_azure_group(
+        departed_count = sync_azure_group(
             azure_cfg["tenant_id"],
             azure_cfg["client_id"],
             azure_cfg["client_secret"],
@@ -129,7 +152,7 @@ def book_all_intros(
         table_name = dynamodb_table_name
         title_tpl, desc_tpl = meeting_title_template, meeting_description_template
     else:
-        sync_azure_group(
+        departed_count = sync_azure_group(
             buddy_azure_cfg["tenant_id"],
             buddy_azure_cfg["client_id"],
             buddy_azure_cfg["client_secret"],
@@ -138,6 +161,12 @@ def book_all_intros(
         )
         table_name = buddy_dynamodb_table_name
         title_tpl, desc_tpl = buddy_meeting_title_template, buddy_meeting_description_template
+    
+    if departed_count and departed_count > 0:
+        _safe_slack_post(
+            channel=channel,
+            text=f":broom: Cleaned up {departed_count} departed user(s) from the database"
+        )
 
     LOG.info(f"Azure sync completed. Table: {table_name}")
 
@@ -168,12 +197,23 @@ def book_all_intros(
         LOG.info(f"Booking for: {new_email}")
         LOG.debug(f"  n_meet={n_meet}")
         used_partners: set[str] = set()
-        LOG.debug(f"  Initialized used_partners set")
+        booked_slots: list[datetime.datetime] = []  # Track slots booked in this session
+        last_booked_date: datetime.date | None = None  # Track last meeting date for cadence
+        LOG.debug(f"  Initialized used_partners set and booked_slots list")
 
         LOG.debug(f"  Starting loop: for meet_i in range({n_meet})")
         for meet_i in range(n_meet):
             LOG.debug(f"  Meeting {meet_i + 1}/{n_meet} for {new_email}")
-            base_offset = meet_i * CADENCE
+            
+            # Calculate search start: either from last booked + CADENCE business days, or start_date
+            if last_booked_date:
+                # Must be at least CADENCE_BUSINESS_DAYS after the last booked meeting
+                min_search_date = add_business_days(last_booked_date, CADENCE_BUSINESS_DAYS)
+            else:
+                # First meeting: start from start_date
+                min_search_date = start_date
+            
+            LOG.debug(f"  Search starts from: {min_search_date}")
             slot = None
             partner = None
 
@@ -196,7 +236,7 @@ def book_all_intros(
                 LOG.debug(f"    Searching for slot with {candidate_partner}...")
                 # Search for available slot
                 for day_offset in range(MAX_SEARCH_DAYS):
-                    candidate_day = start_date + datetime.timedelta(days=base_offset + day_offset)
+                    candidate_day = min_search_date + datetime.timedelta(days=day_offset)
                     LOG.debug(f"      Day offset {day_offset}: {candidate_day.strftime('%Y-%m-%d %A')}")
 
                     # Skip past dates and weekends
@@ -211,6 +251,7 @@ def book_all_intros(
                         start_date=candidate_day,
                         window_start="11:00",
                         window_end="15:00",
+                        excluded_slots=booked_slots,
                     )
                     LOG.debug(f"        Slot result: {slot}")
                     if slot:
@@ -227,15 +268,37 @@ def book_all_intros(
 
             # Create event
             try:
-                summary = title_tpl.format(
-                    person1=new_email.split('@')[0].title(),
-                    person2=partner.split('@')[0].title()
-                ) if '{' in title_tpl else f"Intro: {new_email.split('@')[0]} & {partner.split('@')[0]}"
+                # Support multiple placeholder styles in templates
+                # Replace dots/underscores with spaces for proper names
+                new_name = new_email.split('@')[0].replace('.', ' ').replace('_', ' ').title()
+                partner_name = partner.split('@')[0].replace('.', ' ').replace('_', ' ').title()
+                
+                format_kwargs = {
+                    # Standard placeholders
+                    'person1': new_name,
+                    'person2': partner_name,
+                    # Alternative placeholders (legacy)
+                    'new_first': new_name,
+                    'new_second': partner_name,
+                    'new_starter': new_name,
+                    'buddy': partner_name,
+                    'partner_first': partner_name,
+                    # Email variants
+                    'email1': new_email,
+                    'email2': partner,
+                }
+                
+                try:
+                    summary = title_tpl.format(**format_kwargs) if '{' in title_tpl else f"Intro: {new_name} & {partner_name}"
+                except KeyError as e:
+                    LOG.warning(f"Unknown placeholder {e} in title template, using fallback")
+                    summary = f"Intro: {new_name} & {partner_name}"
 
-                description = desc_tpl.format(
-                    person1=new_email,
-                    person2=partner
-                ) if '{' in desc_tpl else f"{new_email} ↔ {partner}"
+                try:
+                    description = desc_tpl.format(**format_kwargs) if '{' in desc_tpl else f"{new_email} ↔ {partner}"
+                except KeyError as e:
+                    LOG.warning(f"Unknown placeholder {e} in description template, using fallback")
+                    description = f"{new_email} ↔ {partner}"
 
                 create_event(
                     service=svc,
@@ -250,6 +313,8 @@ def book_all_intros(
                 increment_user_weight(partner, table_name)
                 used_partners.add(partner)
                 global_used_partners.add(partner)
+                booked_slots.append(slot)  # Track this slot to avoid double-booking
+                last_booked_date = slot.date()  # Track for cadence - next meeting must be CADENCE days after this
 
                 _safe_slack_post(
                     channel=channel,

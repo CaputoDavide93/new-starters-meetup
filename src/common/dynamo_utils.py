@@ -84,47 +84,90 @@ def pick_one_intro_partner(
             return None
         
         members = response["Item"]["member_list"]
-        candidates = [m for m in members if m not in exclude_set]
+        # Normalize exclude_set to lowercase for comparison
+        exclude_set_lower = {e.lower() for e in exclude_set}
+        candidates = [m for m in members if m.lower() not in exclude_set_lower]
         LOG.info(f"Found {len(candidates)} valid candidates out of {len(members)} members")
         
         if not candidates:
             LOG.warning("No valid candidates available")
             return None
         
-        # Get weights for all candidates
+        # Get weights for all candidates using BatchGetItem for efficiency
         weights: dict[str, float] = {}
-        LOG.debug(f"Fetching weights for {len(candidates)} candidates...")
-        for i, candidate in enumerate(candidates):
+        LOG.debug(f"Fetching weights for {len(candidates)} candidates (batch)...")
+        
+        # BatchGetItem has a limit of 100 items per request
+        batch_size = 100
+        for i in range(0, len(candidates), batch_size):
+            batch_candidates = candidates[i:i + batch_size]
+            
+            # Prepare batch request
+            request_items = {
+                table_name: {
+                    "Keys": [{"email": c} for c in batch_candidates],
+                    "ProjectionExpression": "email, weight"
+                }
+            }
+            
             try:
-                LOG.debug(f"  Fetching weight for candidate {i+1}/{len(candidates)}: {candidate}")
-                resp = table.get_item(Key={"email": candidate})
-                weight = float(resp.get("Item", {}).get("weight", 0.0))
-                # Inverse weight: lower intro count = higher selection probability
-                weights[candidate] = 1.0 / max(0.1, weight + 1.0)
-                LOG.debug(f"    Weight: {weights[candidate]:.2f} (intro_count={weight})")
+                response = dynamodb.batch_get_item(RequestItems=request_items)
+                
+                # Process results
+                for item in response.get("Responses", {}).get(table_name, []):
+                    email = item.get("email", "").lower()
+                    weight = float(item.get("weight", 0.0))
+                    weights[email] = 1.0 / max(0.1, weight + 1.0)
+                    LOG.debug(f"    {email}: weight={weights[email]:.2f} (intro_count={weight})")
+                
+                # Handle unprocessed items (throttling)
+                unprocessed = response.get("UnprocessedKeys", {})
+                while unprocessed:
+                    LOG.debug(f"    Retrying {len(unprocessed.get(table_name, {}).get('Keys', []))} unprocessed items...")
+                    response = dynamodb.batch_get_item(RequestItems=unprocessed)
+                    for item in response.get("Responses", {}).get(table_name, []):
+                        email = item.get("email", "").lower()
+                        weight = float(item.get("weight", 0.0))
+                        weights[email] = 1.0 / max(0.1, weight + 1.0)
+                    unprocessed = response.get("UnprocessedKeys", {})
+                    
             except Exception as e:
-                LOG.warning(f"Could not get weight for {candidate}: {e}")
-                weights[candidate] = 1.0
+                LOG.warning(f"Batch get failed, falling back to individual gets: {e}")
+                for candidate in batch_candidates:
+                    try:
+                        resp = table.get_item(Key={"email": candidate})
+                        weight = float(resp.get("Item", {}).get("weight", 0.0))
+                        weights[candidate.lower()] = 1.0 / max(0.1, weight + 1.0)
+                    except Exception as inner_e:
+                        LOG.warning(f"Could not get weight for {candidate}: {inner_e}")
+                        weights[candidate.lower()] = 1.0
+        
+        # Add default weight for candidates not found in DB (new users)
+        for candidate in candidates:
+            if candidate.lower() not in weights:
+                weights[candidate.lower()] = 1.0  # Default: 0 intros
+                LOG.debug(f"    {candidate}: default weight=1.0 (new user)")
         
         LOG.debug(f"Weight calculation complete. Selecting from {len(weights)} candidates...")
-        # Weighted random selection
+        
         if not weights:
             LOG.info(f"No weights calculated, returning random choice")
             return random.choice(candidates)
         
-        total_weight = sum(weights.values())
-        pick = random.uniform(0, total_weight)
-        current = 0
+        # Find minimum weight (intro_count) - these are users with fewest intros
+        # Note: weights dict stores inverse probability, we need to find users with lowest intro_count
+        # Reconstruct intro counts from inverse weights: weight = 1/(intro_count+1), so intro_count = 1/weight - 1
+        intro_counts = {email: (1.0 / w) - 1.0 for email, w in weights.items()}
+        min_intro_count = min(intro_counts.values())
         
-        for candidate, weight in weights.items():
-            current += weight
-            if pick <= current:
-                LOG.info(f"Selected partner: {candidate} (weight: {weight:.2f})")
-                return candidate
+        # Filter to only candidates with minimum intro count (fairest selection)
+        min_weight_candidates = [email for email, count in intro_counts.items() if count == min_intro_count]
         
-        # Fallback
-        selected = list(weights.keys())[0]
-        LOG.info(f"Fallback selection: {selected}")
+        LOG.info(f"Found {len(min_weight_candidates)} candidates with min intro_count={min_intro_count:.0f}")
+        
+        # Random selection from minimum-weight pool
+        selected = random.choice(min_weight_candidates)
+        LOG.info(f"Selected partner: {selected} (intro_count: {min_intro_count:.0f})")
         return selected
         
     except Exception as e:
@@ -144,12 +187,13 @@ def increment_user_weight(email: str, table_name: str) -> None:
         dynamodb = boto3.resource("dynamodb")
         table = dynamodb.Table(table_name)
         
+        from decimal import Decimal
         table.update_item(
             Key={"email": email},
             UpdateExpression="SET weight = if_not_exists(weight, :zero) + :inc",
             ExpressionAttributeValues={
-                ":zero": 0.0,
-                ":inc": 1.0,
+                ":zero": Decimal("0"),
+                ":inc": Decimal("1"),
             },
         )
         

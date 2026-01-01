@@ -49,6 +49,9 @@ layer/python/**/__pycache__/
 layer/python/**/**/__pycache__/
 *.zip
 
+# Layer intro_common is generated from src/common (do not edit directly)
+# Run scripts/sync-common.sh or scripts/build-layer.sh to update
+
 # Secrets (never commit)
 *.pem
 *.key

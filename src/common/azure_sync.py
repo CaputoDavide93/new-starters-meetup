@@ -18,7 +18,7 @@ def sync_azure_group(
     client_secret: str,
     group_id: str,
     dynamodb_table_name: str,
-) -> None:
+) -> int:
     """
     Sync Azure AD group members to DynamoDB table.
     
@@ -28,6 +28,9 @@ def sync_azure_group(
         client_secret: Azure app client secret
         group_id: Azure group ID to sync
         dynamodb_table_name: DynamoDB table to update
+        
+    Returns:
+        Number of departed users removed from DB
     """
     try:
         # Authenticate with Azure AD
@@ -46,19 +49,24 @@ def sync_azure_group(
             "Content-Type": "application/json",
         }
         
-        # Get group members via Microsoft Graph
-        url = f"https://graph.microsoft.com/v1.0/groups/{group_id}/members?$select=mail,userPrincipalName"
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        
-        data = response.json()
+        # Get group members via Microsoft Graph (with pagination for large groups)
+        url = f"https://graph.microsoft.com/v1.0/groups/{group_id}/members?$select=mail,userPrincipalName&$top=999"
         emails = []
         
-        for member in data.get("value", []):
-            # Prefer mail, fall back to userPrincipalName
-            email = member.get("mail") or member.get("userPrincipalName")
-            if email:
-                emails.append(email)
+        while url:
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            for member in data.get("value", []):
+                # Prefer mail, fall back to userPrincipalName
+                email = member.get("mail") or member.get("userPrincipalName")
+                if email:
+                    emails.append(email.lower())  # Normalize to lowercase
+            
+            # Handle pagination - get next page if exists
+            url = data.get("@odata.nextLink")
         
         LOG.info(f"Synced {len(emails)} members from Azure AD group {group_id}")
         
@@ -76,6 +84,43 @@ def sync_azure_group(
         )
         
         LOG.info(f"Updated DynamoDB table {dynamodb_table_name} with {len(emails)} members")
+        
+        # Clean up departed users - remove weight records for users no longer in Azure
+        current_members_set = set(emails)
+        
+        # Scan table for all user records (not the "members" record)
+        scan_response = table.scan(
+            FilterExpression="email <> :members",
+            ExpressionAttributeValues={":members": "members"}
+        )
+        
+        departed_count = 0
+        for item in scan_response.get("Items", []):
+            user_email = item.get("email", "").lower()
+            if user_email and user_email not in current_members_set:
+                # User no longer in Azure AD - delete their record
+                table.delete_item(Key={"email": item["email"]})
+                LOG.info(f"Removed departed user from DB: {item['email']}")
+                departed_count += 1
+        
+        # Handle pagination if table is large
+        while scan_response.get("LastEvaluatedKey"):
+            scan_response = table.scan(
+                FilterExpression="email <> :members",
+                ExpressionAttributeValues={":members": "members"},
+                ExclusiveStartKey=scan_response["LastEvaluatedKey"]
+            )
+            for item in scan_response.get("Items", []):
+                user_email = item.get("email", "").lower()
+                if user_email and user_email not in current_members_set:
+                    table.delete_item(Key={"email": item["email"]})
+                    LOG.info(f"Removed departed user from DB: {item['email']}")
+                    departed_count += 1
+        
+        if departed_count > 0:
+            LOG.info(f"Cleaned up {departed_count} departed users from {dynamodb_table_name}")
+        
+        return departed_count  # Return for Slack notification
         
     except Exception as e:
         LOG.error(f"Failed to sync Azure AD group: {e}", exc_info=True)

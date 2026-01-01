@@ -6,6 +6,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 LAYER_DIR="$PROJECT_ROOT/layer"
+SRC_COMMON="$PROJECT_ROOT/src/common"
 
 echo "🔧 Building Lambda Layer for Python 3.13 ARM64..."
 echo "   Layer directory: $LAYER_DIR"
@@ -16,17 +17,16 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
-# Clean up old packages (preserve intro_common)
+# Clean up old packages
 echo "📦 Cleaning old packages..."
-if [ -d "$LAYER_DIR/python/intro_common" ]; then
-    cp -r "$LAYER_DIR/python/intro_common" /tmp/intro_common_backup
-fi
 rm -rf "$LAYER_DIR/python"
 mkdir -p "$LAYER_DIR/python"
-if [ -d "/tmp/intro_common_backup" ]; then
-    cp -r /tmp/intro_common_backup "$LAYER_DIR/python/intro_common"
-    rm -rf /tmp/intro_common_backup
-fi
+
+# Copy intro_common from src/common (single source of truth)
+echo "📁 Syncing intro_common from src/common..."
+cp -r "$SRC_COMMON" "$LAYER_DIR/python/intro_common"
+# Update __init__.py to reflect it's now the deployed package
+sed -i '' 's/Note: This package is deployed/Deployed/' "$LAYER_DIR/python/intro_common/__init__.py" 2>/dev/null || true
 
 # Install dependencies using Docker
 echo "📥 Installing dependencies..."
