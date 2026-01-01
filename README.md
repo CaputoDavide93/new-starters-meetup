@@ -20,35 +20,35 @@ A Slack-integrated AWS Lambda application for scheduling intro meetings between 
 
 ```
 NewStarters_MeetUp/
-├── src/                          # Source code
-│   ├── ui_lambda/                # Slack UI Lambda function
-│   │   ├── __init__.py
+├── src/                          # Source code (development)
+│   ├── ui_lambda/
 │   │   └── handler.py            # Slash command & modal handler
-│   ├── worker_lambda/            # Background worker Lambda
-│   │   ├── __init__.py
+│   ├── worker_lambda/
 │   │   └── handler.py            # Booking logic & calendar integration
-│   └── common/                   # Shared utilities (development copy)
+│   └── common/                   # Shared utilities
 │       ├── __init__.py
 │       ├── config.py             # Configuration from Secrets Manager
 │       ├── azure_sync.py         # Azure AD group sync (with pagination)
 │       ├── calendar_utils.py     # Google Calendar operations (FreeBusy API)
 │       └── dynamo_utils.py       # DynamoDB weight management (BatchGetItem)
+├── deploy/                       # Lambda deployment packages
+│   ├── ui-lambda/
+│   │   └── handler.py            # Built from src/ui_lambda
+│   └── worker-lambda/
+│       └── handler.py            # Built from src/worker_lambda
 ├── layer/                        # Lambda Layer (Python 3.13 ARM64)
-│   ├── requirements.txt          # Layer dependencies
-│   └── python/                   # Installed packages
-│       ├── intro_common/         # Shared code (deployed version)
-│       ├── slack_sdk/
-│       ├── slack_bolt/
-│       ├── google-api-python-client/
-│       ├── azure-identity/
-│       └── ...
-├── IntroUI-Lambda-.../           # UI Lambda deployment folder
-│   └── ui_entry.py
-├── IntroWorker-Lambda-.../       # Worker Lambda deployment folder
-│   └── worker_entry.py
-├── scripts/                      # Build scripts
-│   ├── build-layer.sh
-│   └── sync-common.sh
+│   ├── requirements.txt
+│   └── python/
+│       ├── intro_common/         # Shared code (copied from src/common)
+│       └── ...                   # Third-party dependencies
+├── scripts/
+│   ├── build.sh                  # Build all deployment ZIPs
+│   ├── build-layer.sh            # Rebuild layer with Docker
+│   └── sync-common.sh            # Quick sync of common code
+├── dist/                         # Built ZIPs (gitignored)
+│   ├── ui-lambda.zip
+│   ├── worker-lambda.zip
+│   └── layer-python313-arm64.zip
 ├── .gitignore
 └── README.md
 ```
