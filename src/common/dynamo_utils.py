@@ -13,6 +13,42 @@ import boto3
 LOG = logging.getLogger(__name__)
 
 
+def get_display_name(email: str, table_name: str) -> str:
+    """
+    Get display name for user from DynamoDB.
+    
+    Falls back to email-derived name if not found.
+    
+    Args:
+        email: User email
+        table_name: DynamoDB table name
+        
+    Returns:
+        Display name or formatted email name
+    """
+    try:
+        email = email.lower()
+        dynamodb = boto3.resource("dynamodb")
+        table = dynamodb.Table(table_name)
+        
+        response = table.get_item(
+            Key={"email": email},
+            ProjectionExpression="display_name"
+        )
+        
+        display_name = response.get("Item", {}).get("display_name", "")
+        if display_name:
+            return display_name
+        
+        # Fallback: derive from email (john.doe@example.com -> John Doe)
+        return email.split('@')[0].replace('.', ' ').replace('_', ' ').title()
+        
+    except Exception as e:
+        LOG.warning(f"Could not get display name for {email}: {e}")
+        # Fallback on error
+        return email.split('@')[0].replace('.', ' ').replace('_', ' ').title()
+
+
 def ensure_user_in_db(
     email: str,
     table_name: str,

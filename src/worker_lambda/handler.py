@@ -37,6 +37,7 @@ from intro_common.dynamo_utils import (
     ensure_user_in_db,
     pick_one_intro_partner,
     increment_user_weight,
+    get_display_name,
 )
 from intro_common.calendar_utils import (
     get_calendar_service,
@@ -268,10 +269,9 @@ def book_all_intros(
 
             # Create event
             try:
-                # Support multiple placeholder styles in templates
-                # Replace dots/underscores with spaces for proper names
-                new_name = new_email.split('@')[0].replace('.', ' ').replace('_', ' ').title()
-                partner_name = partner.split('@')[0].replace('.', ' ').replace('_', ' ').title()
+                # Get display names from DB (falls back to email-derived names)
+                new_name = get_display_name(new_email, table_name)
+                partner_name = get_display_name(partner, table_name)
                 
                 format_kwargs = {
                     # Standard placeholders
