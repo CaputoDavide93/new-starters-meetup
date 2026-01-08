@@ -16,7 +16,7 @@ mkdir -p "$DIST_DIR"
 echo "📁 Syncing intro_common..."
 cp -f "$PROJECT_ROOT/src/common/"*.py "$PROJECT_ROOT/layer/python/intro_common/"
 cp -f "$PROJECT_ROOT/src/ui_lambda/ui_entry.py" "$DEPLOY_DIR/ui-lambda/ui_entry.py"
-cp -f "$PROJECT_ROOT/src/worker_lambda/handler.py" "$DEPLOY_DIR/worker-lambda/handler.py"
+cp -f "$PROJECT_ROOT/src/worker_lambda/worker_entry.py" "$DEPLOY_DIR/worker-lambda/worker_entry.py"
 
 # Build UI Lambda ZIP
 echo "📦 Building ui-lambda.zip..."
