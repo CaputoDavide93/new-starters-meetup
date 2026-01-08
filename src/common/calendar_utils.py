@@ -132,8 +132,24 @@ def find_next_free_slot(
         
         # Check slots in 15-minute increments
         current = search_dt
+        
+        # Define lunch break period (12:00 - 13:30)
+        lunch_start = datetime.time(12, 0)
+        lunch_end = datetime.time(13, 30)
+        
         while current + datetime.timedelta(minutes=duration) <= search_dt_end:
             slot_end = current + datetime.timedelta(minutes=duration)
+            
+            # Skip lunch break (12:00 - 13:30)
+            current_time = current.time()
+            slot_end_time = slot_end.time()
+            if current_time >= lunch_start and current_time < lunch_end:
+                current += datetime.timedelta(minutes=15)
+                continue
+            if slot_end_time > lunch_start and current_time < lunch_start:
+                # Slot would extend into lunch break
+                current += datetime.timedelta(minutes=15)
+                continue
             
             # Check if slot overlaps with any busy period
             is_free = True
@@ -199,12 +215,19 @@ def create_event(
             "start": {"dateTime": start_str, "timeZone": "Europe/Dublin"},
             "end": {"dateTime": end_str, "timeZone": "Europe/Dublin"},
             "attendees": [{"email": attendee} for attendee in attendees],
+            "conferenceData": {
+                "createRequest": {
+                    "requestId": f"{calendar_id}-{start_dt.timestamp()}",
+                    "conferenceSolutionKey": {"type": "hangoutsMeet"},
+                }
+            },
         }
         
         result = service.events().insert(
             calendarId=calendar_id,
             body=event,
             sendUpdates="all",
+            conferenceDataVersion=1,
         ).execute()
         
         LOG.info(f"Created event: {result['id']}")
