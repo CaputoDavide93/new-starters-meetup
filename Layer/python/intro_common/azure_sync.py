@@ -50,8 +50,9 @@ def sync_azure_group(
         }
         
         # Get group members via Microsoft Graph (with pagination for large groups)
-        url = f"https://graph.microsoft.com/v1.0/groups/{group_id}/members?$select=mail,userPrincipalName&$top=999"
-        emails = []
+        # Include displayName for user records
+        url = f"https://graph.microsoft.com/v1.0/groups/{group_id}/members?$select=mail,userPrincipalName,displayName&$top=999"
+        members_data = []  # Store email and display name pairs
         
         while url:
             response = requests.get(url, headers=headers)
@@ -62,12 +63,17 @@ def sync_azure_group(
             for member in data.get("value", []):
                 # Prefer mail, fall back to userPrincipalName
                 email = member.get("mail") or member.get("userPrincipalName")
+                display_name = member.get("displayName", "")
                 if email:
-                    emails.append(email.lower())  # Normalize to lowercase
+                    members_data.append({
+                        "email": email.lower(),
+                        "display_name": display_name,
+                    })
             
             # Handle pagination - get next page if exists
             url = data.get("@odata.nextLink")
         
+        emails = [m["email"] for m in members_data]
         LOG.info(f"Synced {len(emails)} members from Azure AD group {group_id}")
         
         # Update DynamoDB table
@@ -82,6 +88,18 @@ def sync_azure_group(
                 "member_list": emails,
             }
         )
+        
+        # Create/update individual user records with display names
+        for member in members_data:
+            try:
+                # Update display_name without overwriting weight
+                table.update_item(
+                    Key={"email": member["email"]},
+                    UpdateExpression="SET display_name = :dn",
+                    ExpressionAttributeValues={":dn": member["display_name"]},
+                )
+            except Exception as e:
+                LOG.warning(f"Failed to update display_name for {member['email']}: {e}")
         
         LOG.info(f"Updated DynamoDB table {dynamodb_table_name} with {len(emails)} members")
         
