@@ -27,6 +27,9 @@ def ensure_user_in_db(
         initial_weight: Initial weight value
     """
     try:
+        # Normalize email to lowercase for consistent DB keys
+        email = email.lower()
+        
         dynamodb = boto3.resource("dynamodb")
         table = dynamodb.Table(table_name)
         
@@ -184,6 +187,9 @@ def increment_user_weight(email: str, table_name: str) -> None:
         table_name: DynamoDB table name
     """
     try:
+        # Normalize email to lowercase for consistent DB keys
+        email = email.lower()
+        
         dynamodb = boto3.resource("dynamodb")
         table = dynamodb.Table(table_name)
         
