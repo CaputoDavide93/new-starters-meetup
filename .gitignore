@@ -52,12 +52,24 @@ layer/python/**/**/__pycache__/
 # Layer intro_common is generated from src/common (do not edit directly)
 # Run scripts/sync-common.sh or scripts/build-layer.sh to update
 
-# Secrets (never commit)
+# Secrets (never commit - CRITICAL FOR OPEN SOURCE)
 *.pem
 *.key
+*.p12
+*.pfx
 secrets.json
+secrets.*.json
+config.local.json
 .env
 .env.*
+!.env.example
+service-account*.json
+*-credentials.json
+*-sa-key.json
+
+# AWS
+.aws/
+aws-credentials
 
 # Logs
 *.log
