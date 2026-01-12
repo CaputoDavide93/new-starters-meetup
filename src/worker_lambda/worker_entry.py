@@ -12,6 +12,7 @@ Python 3.13+
 
 import json
 import datetime
+import os
 import logging
 import time
 
@@ -46,11 +47,11 @@ from intro_common.calendar_utils import (
 )
 
 LOG = logging.getLogger(__name__)
-LOG.setLevel(logging.DEBUG)
+LOG.setLevel(logging.getLevelName(os.environ.get("LOG_LEVEL", "INFO")))
 
 logging.basicConfig(
     format='%(asctime)s [%(levelname)s] [%(name)s] %(message)s',
-    level=logging.DEBUG
+    level=logging.getLevelName(os.environ.get("LOG_LEVEL", "INFO"))
 )
 
 SLACK = WebClient(token=slack_cfg["bot_token"])
