@@ -1,6 +1,6 @@
 <div align="center">
 
-# 👋 new-starters-meetup
+# 👋 New Starters MeetUp
 
 > **Automated Slack introductions for new team members - Schedule virtual coffee chats and team meetups**
 
