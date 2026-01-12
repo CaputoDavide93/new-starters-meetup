@@ -1,6 +1,6 @@
 <div align="center">
 
-# 👋 New Starters MeetUp
+# 👋 new-starters-meetup
 
 > **Automated Slack introductions for new team members - Schedule virtual coffee chats and team meetups**
 
@@ -15,21 +15,6 @@
 
 ---
 
-## 📑 Table of Contents
-
-- [✨ Features](#-features)
-- [📋 Prerequisites](#-prerequisites)
-- [🚀 Quick Start](#-quick-start)
-- [☁️ AWS Deployment](#️-aws-deployment)
-- [⚙️ Configuration](#️-configuration)
-- [📖 Usage](#-usage)
-- [🔧 Architecture](#-architecture)
-- [🐛 Troubleshooting](#-troubleshooting)
-- [🤝 Contributing](#-contributing)
-- [📄 License](#-license)
-- [👤 Author](#-author)
-
----
 
 ## ✨ Features
 
@@ -61,8 +46,8 @@
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/CaputoDavide93/NewStarters_MeetUp.git
-cd NewStarters_MeetUp
+git clone https://github.com/CaputoDavide93/new-starters-meetup.git
+cd new-starters-meetup
 ```
 
 ### 2. Configure Environment
@@ -195,7 +180,7 @@ graph LR
 ### Project Structure
 
 ```
-NewStarters_MeetUp/
+new-starters-meetup/
 ├── src/
 │   ├── main.py           # Entry point
 │   ├── slack_client.py   # Slack API wrapper
